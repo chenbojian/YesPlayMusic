@@ -70,13 +70,20 @@ class MpdPlayer {
     this.__currentSongResult = null;
 
     mpdState.reset();
-    this.__replace_uris = this.__callMpd('MYMPD_API_QUEUE_REPLACE_URI_TAGS', {
-      uri: this.src[0],
-      tags: this.tags,
-      play: false,
-    }).then(() => {
-      mpdState.onend = onend;
-    });
+
+    if (currentTrack.playable) {
+      this.__replace_uris = this.__callMpd('MYMPD_API_QUEUE_REPLACE_URI_TAGS', {
+        uri: this.src[0],
+        tags: this.tags,
+        play: false,
+      }).then(() => {
+        mpdState.onend = onend;
+      });
+    } else {
+      this.__callMpd('MYMPD_API_QUEUE_CLEAR', {}).then(() => {
+        onend();
+      });
+    }
   }
 
   async __callMpd(method, params) {
