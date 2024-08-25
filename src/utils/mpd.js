@@ -13,7 +13,8 @@ const mpdState = {
     if (prevState === curState) {
       return;
     }
-    if (curState === 'stop') {
+    console.log(`state changed from ${prevState} to ${curState}`);
+    if (prevState === 'play' && curState === 'stop') {
       this.onend();
     }
   },
@@ -57,12 +58,12 @@ class MpdPlayer {
     this.currentTrack = currentTrack;
     this.tags = {
       title: currentTrack.name,
-      artist: currentTrack.al.name,
+      album: currentTrack.al.name,
+      artist: currentTrack.ar.map(ar => ar.name).join('; '),
     };
 
     this._sounds = [];
 
-    // this.onend = onend;
     this.__onceCallbacks = {};
     this.__currentSongResult = null;
 
@@ -96,7 +97,9 @@ class MpdPlayer {
   seek() {
     // TODO: support this._howler?.seek(time);
     if (mpdState.state === 'play' && this.__currentSongResult) {
-      return Math.floor(Date.now() / 1000) - this.__currentSongResult.startTime;
+      let process =
+        Math.floor(Date.now() / 1000) - this.__currentSongResult.startTime;
+      return process;
     }
     if (mpdState.state === 'pause') {
       return mpdState.data.elapsedTime;
