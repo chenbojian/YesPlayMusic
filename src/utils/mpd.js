@@ -49,6 +49,8 @@ function openWebSocket() {
 
 openWebSocket();
 
+const mympdUrl = process.env.MYMPD_URL || 'http://localhost:8080';
+
 class MpdPlayer {
   constructor({ src, html5, preload, format, onend, currentTrack }) {
     this.src = src;
@@ -78,7 +80,7 @@ class MpdPlayer {
   }
 
   async __callMpd(method, params) {
-    const res = await fetch('http://localhost:8080/api/default', {
+    const res = await fetch(mympdUrl + '/api/default', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
