@@ -8,7 +8,8 @@ import store from '@/store';
 import { isAccountLoggedIn } from '@/utils/auth';
 import { cacheTrackSource, getTrackSource } from '@/utils/db';
 import { isCreateMpris, isCreateTray } from '@/utils/platform';
-import { Howl, Howler } from 'howler';
+import { Howler } from 'howler';
+import MpdPlayer from '@/utils/mpd';
 import shuffle from 'lodash/shuffle';
 import { decode as base642Buffer } from '@/utils/base64';
 
@@ -329,7 +330,7 @@ export default class {
   }
   _playAudioSource(source, autoplay = true) {
     Howler.unload();
-    this._howler = new Howl({
+    this._howler = new MpdPlayer({
       src: [source],
       html5: true,
       preload: true,
@@ -337,6 +338,7 @@ export default class {
       onend: () => {
         this._nextTrackCallback();
       },
+      currentTrack: this._currentTrack,
     });
     this._howler.on('loaderror', (_, errCode) => {
       // https://developer.mozilla.org/en-US/docs/Web/API/MediaError/code
