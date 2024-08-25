@@ -49,7 +49,7 @@ function openWebSocket() {
 
 openWebSocket();
 
-const mympdUrl = process.env.MYMPD_URL || 'http://localhost:8080';
+const mympdUrl = process.env.VUE_APP_MYMPD_URL || 'http://localhost:8080';
 
 class MpdPlayer {
   constructor({ src, html5, preload, format, onend, currentTrack }) {
