@@ -727,6 +727,7 @@ export default class {
   playNextTrack() {
     // TODO: 切换歌曲时增加加载中的状态
     const [trackID, index] = this._getNextTrack();
+    console.log(`_getNextTrack -> trackID: ${trackID}, index: ${index}`);
     if (trackID === undefined) {
       this._howler?.stop();
       this._setPlaying(false);
@@ -885,6 +886,7 @@ export default class {
   ) {
     this._isPersonalFM = false;
     this.list = trackIDs;
+    console.log(this.list);
     this.current = 0;
     this._playlistSource = {
       type: playlistSourceType,

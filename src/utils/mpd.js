@@ -15,6 +15,7 @@ const mpdState = {
     }
     console.log(`state changed from ${prevState} to ${curState}`);
     if (prevState === 'play' && curState === 'stop') {
+      console.log('calling onend...');
       this.onend();
     }
   },
@@ -26,10 +27,33 @@ const mpdState = {
   },
 };
 
-function openWebSocket() {
-  const socket = new WebSocket('ws://localhost:8080/ws/default');
+async function callMpd(method, params) {
+  console.log(`calling mpd with ${method}, ${JSON.stringify(params)}`);
+  const res = await fetch(mympdUrl + '/api/default', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 950999009,
+      method: method,
+      params: params,
+    }),
+  });
+  const resJson = await res.json();
+  return resJson.result;
+}
 
-  socket.addEventListener('open', () => {});
+let socket;
+
+function openWebSocket() {
+  socket = new WebSocket('ws://localhost:8080/ws/default');
+
+  socket.addEventListener('open', () => {
+    console.log(`websocket open ${new Date().toISOString()}`);
+    socket.send('ping');
+  });
 
   socket.addEventListener('message', event => {
     if (!event.data) {
@@ -44,6 +68,7 @@ function openWebSocket() {
   });
 
   socket.addEventListener('close', () => {
+    console.log(`websocket close ${new Date().toISOString()}`);
     setTimeout(openWebSocket);
   });
 }
@@ -53,7 +78,10 @@ openWebSocket();
 const mympdUrl = process.env.VUE_APP_MYMPD_URL || 'http://localhost:8080';
 
 class MpdPlayer {
+  static __nextId = 0;
   constructor({ src, html5, preload, format, onend, currentTrack }) {
+    this.__id = MpdPlayer.__nextId++;
+    console.log(`new MpdPlayer ${this.__id} to play ${currentTrack.name}`);
     this.src = src;
     this.html5 = html5;
     this.preload = preload;
@@ -66,42 +94,27 @@ class MpdPlayer {
     };
 
     this._sounds = [];
+    this.__playing = false;
 
     this.__onceCallbacks = {};
     this.__currentSongResult = null;
 
     mpdState.reset();
-
+    mpdState.onend = () => {
+      console.log(`[${this.__id}] calling MpdPlyaer.onend`);
+      onend();
+    };
     if (currentTrack.playable) {
-      this.__replace_uris = this.__callMpd('MYMPD_API_QUEUE_REPLACE_URI_TAGS', {
+      this.__replace_uris = callMpd('MYMPD_API_QUEUE_REPLACE_URI_TAGS', {
         uri: this.src[0],
         tags: this.tags,
         play: false,
-      }).then(() => {
-        mpdState.onend = onend;
       });
     } else {
-      this.__callMpd('MYMPD_API_QUEUE_CLEAR', {}).then(() => {
-        onend();
+      callMpd('MYMPD_API_QUEUE_CLEAR', {}).then(() => {
+        mpdState.onend();
       });
     }
-  }
-
-  async __callMpd(method, params) {
-    const res = await fetch(mympdUrl + '/api/default', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 850999009,
-        method: method,
-        params: params,
-      }),
-    });
-    const resJson = await res.json();
-    return resJson.result;
   }
 
   seek() {
@@ -109,6 +122,11 @@ class MpdPlayer {
     if (mpdState.state === 'play' && this.__currentSongResult) {
       let process =
         Math.floor(Date.now() / 1000) - this.__currentSongResult.startTime;
+      console.log(
+        `[${this.__id}] checking MpdPlayer.seek ${process} / ${~~(
+          this.currentTrack.dt / 1000
+        )}`
+      );
       return process;
     }
     if (mpdState.state === 'pause') {
@@ -118,18 +136,20 @@ class MpdPlayer {
   }
 
   playing() {
+    console.log(`[${this.__id}] checking MpdPlayer.playing ${this.__playing}`);
     return this.__playing;
   }
   async play() {
+    console.log(`[${this.__id}] calling MpdPlayer.play`);
     if (mpdState.state === 'pause') {
-      await this.__callMpd('MYMPD_API_PLAYER_RESUME', {});
+      await callMpd('MYMPD_API_PLAYER_RESUME', {});
     } else {
       this.__currentSongResult = null;
       await this.__replace_uris;
-      await this.__callMpd('MYMPD_API_PLAYER_PLAY', {});
+      await callMpd('MYMPD_API_PLAYER_PLAY', {});
     }
 
-    this.__currentSongResult = await this.__callMpd(
+    this.__currentSongResult = await callMpd(
       'MYMPD_API_PLAYER_CURRENT_SONG',
       {}
     );
@@ -149,12 +169,14 @@ class MpdPlayer {
     }, 100);
   }
   async pause() {
-    await this.__callMpd('MYMPD_API_PLAYER_PAUSE', {});
+    await callMpd('MYMPD_API_PLAYER_PAUSE', {});
     this.__playing = false;
   }
 
   async stop() {
-    await this.__callMpd('MYMPD_API_PLAYER_STOP', {});
+    console.log(`[${this.__id}] calling MpdPlayer.stop`);
+    await callMpd('MYMPD_API_PLAYER_STOP', {});
+    this.__playing = false;
   }
 
   on(event, callback) {
