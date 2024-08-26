@@ -1,5 +1,5 @@
 const mpdState = {
-  _state: null,
+  _state: 'stop',
   get state() {
     return this._state;
   },
@@ -20,8 +20,9 @@ const mpdState = {
   },
   onend: () => {},
   reset() {
-    this.state = null;
+    this.state = 'stop';
     this.data = null;
+    this.onend = () => {};
   },
 };
 
