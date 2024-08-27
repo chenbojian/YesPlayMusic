@@ -45,18 +45,25 @@ async function callMpd(method, params) {
   return resJson.result;
 }
 
+const mympdUrl = process.env.VUE_APP_MYMPD_URL || 'http://localhost:8080';
 let socket;
 
 function openWebSocket() {
-  socket = new WebSocket('ws://localhost:8080/ws/default');
+  socket = new WebSocket(`${mympdUrl.replace('http', 'ws')}/ws/default`);
+  let intervalId;
 
   socket.addEventListener('open', () => {
     console.log(`websocket open ${new Date().toISOString()}`);
-    socket.send('ping');
+    intervalId = setInterval(() => {
+      socket.send('ping');
+    }, 5000);
   });
 
   socket.addEventListener('message', event => {
     if (!event.data) {
+      return;
+    }
+    if (!event.data.startsWith('{')) {
       return;
     }
     const data = JSON.parse(event.data);
@@ -69,13 +76,12 @@ function openWebSocket() {
 
   socket.addEventListener('close', () => {
     console.log(`websocket close ${new Date().toISOString()}`);
+    clearInterval(intervalId);
     setTimeout(openWebSocket);
   });
 }
 
 openWebSocket();
-
-const mympdUrl = process.env.VUE_APP_MYMPD_URL || 'http://localhost:8080';
 
 class MpdPlayer {
   static __nextId = 0;
@@ -105,11 +111,28 @@ class MpdPlayer {
       onend();
     };
     if (currentTrack.playable) {
-      this.__replace_uris = callMpd('MYMPD_API_QUEUE_REPLACE_URI_TAGS', {
-        uri: this.src[0],
-        tags: this.tags,
-        play: false,
-      });
+      this.__replace_uris = fetch(
+        `http://localhost:8000/music/${currentTrack.id}`,
+        {
+          method: 'post',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            url: this.src[0],
+            artist: currentTrack.ar.map(ar => ar.name).join('&'),
+            name: currentTrack.name,
+          }),
+        }
+      )
+        .then(r => r.json())
+        .then(res => {
+          return callMpd('MYMPD_API_QUEUE_REPLACE_URI_TAGS', {
+            uri: res.nfs,
+            tags: this.tags,
+            play: false,
+          });
+        });
     } else {
       callMpd('MYMPD_API_QUEUE_CLEAR', {}).then(() => {
         mpdState.onend();
