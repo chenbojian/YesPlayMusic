@@ -22,9 +22,9 @@ const mpdState = {
   },
   onend: () => {},
   reset() {
+    this.onend = () => {};
     this.state = 'stop';
     this.data = null;
-    this.onend = () => {};
   },
 };
 
@@ -111,8 +111,9 @@ class MpdPlayer {
   }
 
   async __init() {
-    await mpdState.player?.pause();
+    const prevPlayer = await mpdState.player;
     mpdState.reset();
+    await prevPlayer?.stop();
     mpdState.onend = () => {
       console.log(`[${this.__id}] calling MpdPlyaer.onend`);
       this.onend();
@@ -197,6 +198,7 @@ class MpdPlayer {
     }, 100);
   }
   async pause() {
+    console.log(`[${this.__id}] calling MpdPlayer.pause`);
     await callMpd('MYMPD_API_PLAYER_PAUSE', {});
     this.__playing = false;
   }
