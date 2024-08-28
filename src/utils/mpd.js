@@ -1,4 +1,5 @@
 const mpdState = {
+  player: null,
   _state: 'stop',
   get state() {
     return this._state;
@@ -98,6 +99,7 @@ class MpdPlayer {
       album: currentTrack.al.name,
       artist: currentTrack.ar.map(ar => ar.name).join('; '),
     };
+    this.onend = onend;
 
     this._sounds = [];
     this.__playing = false;
@@ -105,14 +107,20 @@ class MpdPlayer {
     this.__onceCallbacks = {};
     this.__currentSongResult = null;
 
+    this.__init_promise = this.__init();
+  }
+
+  async __init() {
+    await mpdState.player?.pause();
     mpdState.reset();
     mpdState.onend = () => {
       console.log(`[${this.__id}] calling MpdPlyaer.onend`);
-      onend();
+      this.onend();
     };
-    if (currentTrack.playable) {
-      this.__replace_uris = fetch(
-        `http://localhost:8000/music/${currentTrack.id}`,
+    mpdState.player = this;
+    if (this.currentTrack.playable) {
+      const response = await fetch(
+        `http://localhost:8000/music/${this.currentTrack.id}`,
         {
           method: 'post',
           headers: {
@@ -120,23 +128,20 @@ class MpdPlayer {
           },
           body: JSON.stringify({
             url: this.src[0],
-            artist: currentTrack.ar.map(ar => ar.name).join('&'),
-            name: currentTrack.name,
+            artist: this.currentTrack.ar.map(ar => ar.name).join('&'),
+            name: this.currentTrack.name,
           }),
         }
-      )
-        .then(r => r.json())
-        .then(res => {
-          return callMpd('MYMPD_API_QUEUE_REPLACE_URI_TAGS', {
-            uri: res.nfs,
-            tags: this.tags,
-            play: false,
-          });
-        });
-    } else {
-      callMpd('MYMPD_API_QUEUE_CLEAR', {}).then(() => {
-        mpdState.onend();
+      );
+      const response_json = await response.json();
+      await callMpd('MYMPD_API_QUEUE_REPLACE_URI_TAGS', {
+        uri: response_json.nfs,
+        tags: this.tags,
+        play: false,
       });
+    } else {
+      await callMpd('MYMPD_API_QUEUE_CLEAR', {});
+      mpdState.onend();
     }
   }
 
@@ -168,7 +173,7 @@ class MpdPlayer {
       await callMpd('MYMPD_API_PLAYER_RESUME', {});
     } else {
       this.__currentSongResult = null;
-      await this.__replace_uris;
+      await this.__init_promise;
       await callMpd('MYMPD_API_PLAYER_PLAY', {});
     }
 
