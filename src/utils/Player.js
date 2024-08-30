@@ -156,6 +156,9 @@ export default class {
   }
   set list(list) {
     this._list = list;
+    MpdPlayer.initList(this.list, getTrackDetail, track =>
+      this._getAudioSource(track)
+    );
   }
   get current() {
     return this.shuffle ? this._shuffledCurrent : this._current;
@@ -339,6 +342,7 @@ export default class {
         this._nextTrackCallback();
       },
       currentTrack: this._currentTrack,
+      current: this.current,
     });
     this._howler.on('loaderror', (_, errCode) => {
       // https://developer.mozilla.org/en-US/docs/Web/API/MediaError/code
@@ -566,6 +570,11 @@ export default class {
     if (!player) return;
     for (const [key, value] of Object.entries(player)) {
       this[key] = value;
+      if (key == '_list' && value.length > 0) {
+        MpdPlayer.initList(this.list, getTrackDetail, track =>
+          this._getAudioSource(track)
+        );
+      }
     }
   }
   _initMediaSession() {
@@ -886,7 +895,6 @@ export default class {
   ) {
     this._isPersonalFM = false;
     this.list = trackIDs;
-    console.log(this.list);
     this.current = 0;
     this._playlistSource = {
       type: playlistSourceType,
