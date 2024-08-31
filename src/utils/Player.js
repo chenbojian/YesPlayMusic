@@ -9,7 +9,7 @@ import { isAccountLoggedIn } from '@/utils/auth';
 import { cacheTrackSource, getTrackSource } from '@/utils/db';
 import { isCreateMpris, isCreateTray } from '@/utils/platform';
 import { Howler } from 'howler';
-import MpdPlayer from '@/utils/mpd';
+import { FakeHowler } from '@/utils/mpd';
 import shuffle from 'lodash/shuffle';
 import { decode as base642Buffer } from '@/utils/base64';
 
@@ -156,9 +156,7 @@ export default class {
   }
   set list(list) {
     this._list = list;
-    MpdPlayer.initList(this.list, getTrackDetail, track =>
-      this._getAudioSource(track)
-    );
+    store.state.mpd.syncListFromPlayer();
   }
   get current() {
     return this.shuffle ? this._shuffledCurrent : this._current;
@@ -333,7 +331,7 @@ export default class {
   }
   _playAudioSource(source, autoplay = true) {
     Howler.unload();
-    this._howler = new MpdPlayer({
+    this._howler = new FakeHowler({
       src: [source],
       html5: true,
       preload: true,
@@ -341,8 +339,9 @@ export default class {
       onend: () => {
         this._nextTrackCallback();
       },
-      currentTrack: this._currentTrack,
       current: this.current,
+      currentTrack: this._currentTrack,
+      mpd: store.state.mpd,
     });
     this._howler.on('loaderror', (_, errCode) => {
       // https://developer.mozilla.org/en-US/docs/Web/API/MediaError/code
@@ -570,11 +569,6 @@ export default class {
     if (!player) return;
     for (const [key, value] of Object.entries(player)) {
       this[key] = value;
-      if (key == '_list' && value.length > 0) {
-        MpdPlayer.initList(this.list, getTrackDetail, track =>
-          this._getAudioSource(track)
-        );
-      }
     }
   }
   _initMediaSession() {

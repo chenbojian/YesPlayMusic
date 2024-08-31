@@ -8,6 +8,7 @@ import Player from '@/utils/Player';
 // vuex 自定义插件
 import saveToLocalStorage from './plugins/localStorage';
 import { getSendSettingsPlugin } from './plugins/sendSettings';
+import { Mpd } from '@/utils/mpd';
 
 Vue.use(Vuex);
 
@@ -52,6 +53,8 @@ window
   });
 
 let player = new Player();
+let mpd = new Mpd(player);
+
 player = new Proxy(player, {
   set(target, prop, val) {
     // console.log({ prop, val });
@@ -63,5 +66,7 @@ player = new Proxy(player, {
   },
 });
 store.state.player = player;
+store.state.mpd = mpd;
+mpd.syncListFromPlayer();
 
 export default store;

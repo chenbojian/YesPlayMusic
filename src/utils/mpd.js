@@ -1,36 +1,9 @@
+import { getTrackDetail } from '@/api/track';
 import * as _ from 'lodash';
 
 const mympdUrl = process.env.VUE_APP_MYMPD_URL || 'http://localhost:8080';
 const neteaseMusicDownloadUrl =
   process.env.VUE_APP_NETEASE_MUSIC_DOWNLOAD_URL || 'http://localhost:8000';
-let socket;
-
-const mpdState = {
-  player: null,
-  state: 'stop',
-  pos: -1,
-  data: null,
-  onChange(prevState, prevPos) {
-    console.log(`state changed from ${prevState} to ${this.state}`);
-    console.log(`pos changed from ${prevPos} to ${this.pos}`);
-    if (prevState === 'play' && this.state === 'stop') {
-      console.log('calling onend...');
-      this.onend();
-      return;
-    }
-    if (
-      prevState === 'play' &&
-      this.state === 'play' &&
-      prevPos !== this.pos &&
-      prevPos !== -1
-    ) {
-      console.log('calling onend...');
-      this.onend();
-      return;
-    }
-  },
-  onend: () => {},
-};
 
 async function callMpd(method, params) {
   console.log(`calling mpd with ${method}, ${JSON.stringify(params)}`);
@@ -51,210 +24,315 @@ async function callMpd(method, params) {
 }
 window.callMpd = callMpd;
 
-async function openWebSocket() {
-  const playerState = await callMpd('MYMPD_API_PLAYER_STATE', {});
-  mpdState.state = playerState.state;
-  mpdState.pos = playerState.songPos;
-  mpdState.data = playerState;
+class StatusTracker {
+  constructor() {
+    this.done = false;
 
-  socket = new WebSocket(`${mympdUrl.replace('http', 'ws')}/ws/default`);
-  let intervalId;
-
-  socket.addEventListener('open', () => {
-    console.log(`websocket open ${new Date().toISOString()}`);
-    intervalId = setInterval(() => {
-      socket.send('ping');
-    }, 5000);
-  });
-
-  socket.addEventListener('message', event => {
-    if (!event.data) {
-      return;
-    }
-    if (!event.data.startsWith('{')) {
-      return;
-    }
-    const data = JSON.parse(event.data);
-    if (data.method !== 'update_state') {
-      return;
-    }
-    const prevState = mpdState.state;
-    const prevPos = mpdState.pos;
-    mpdState.state = data.params.state;
-    mpdState.pos = data.params.songPos;
-    mpdState.data = data.params;
-    mpdState.onChange(prevState, prevPos);
-  });
-
-  socket.addEventListener('close', () => {
-    console.log(`websocket close ${new Date().toISOString()}`);
-    clearInterval(intervalId);
-    setTimeout(openWebSocket);
-  });
-}
-
-openWebSocket();
-
-async function getListInMpd() {
-  const queue = await callMpd('MYMPD_API_QUEUE_SEARCH', {
-    offset: 0,
-    limit: 100,
-    sort: 'Priority',
-    sortdesc: false,
-    expression: '',
-    fields: [
-      'Pos',
-      'Title',
-      'Artist',
-      'Album',
-      'Duration',
-      'AlbumArtist',
-      'Genre',
-      'Name',
-    ],
-  });
-  function extractIdFromUrl(url) {
-    const match = /neteasemusic\/(.+?)\//.exec(url);
-    return match && +match[1];
+    this.deferred = {};
+    this.promise = new Promise((resolve, reject) => {
+      this.deferred.resolve = resolve;
+      this.deferred.reject = reject;
+    });
   }
-  const list = queue.data.map(s => extractIdFromUrl(s.uri));
-  const mpdIds = queue.data.map(s => s.id);
-  console.log('list in mpd: ', list);
-  console.log('ids in mpd: ', mpdIds);
 
-  return [list, mpdIds];
+  markAsDone() {
+    if (!this.done) {
+      this.done = true;
+      this.deferred.resolve();
+    }
+  }
 }
 
 class MpdPlayer {
-  static __nextId = 0;
-  static __list = [];
-  static __mpdIds = [];
-
-  static async initList(list, getTrackDetail, getAudioSource) {
-    let [mpdList, mpdIds] = await getListInMpd();
-    if (_.isEqual(list, mpdList)) {
-      MpdPlayer.__list = list;
-      MpdPlayer.__mpdIds = mpdIds;
-      return;
-    }
-
-    MpdPlayer.__list = [];
-    await callMpd('MYMPD_API_QUEUE_CLEAR', {});
-    for (let id of list) {
-      const track = (await getTrackDetail(id)).songs[0]; // TODO: handle track.playable === false
-      const source = await getAudioSource(track);
-      const tags = {
-        title: track.name,
-        album: track.al.name,
-        artist: track.ar.map(ar => ar.name).join('; '),
-      };
-      const response = await fetch(
-        `${neteaseMusicDownloadUrl}/music/${track.id}`,
-        {
-          method: 'post',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            url: source,
-            artist: track.ar.map(ar => ar.name).join('&'),
-            name: track.name,
-          }),
-        }
-      );
-      const response_json = await response.json();
-      await callMpd('MYMPD_API_QUEUE_APPEND_URI_TAGS', {
-        uri: response_json.nfs,
-        tags: tags,
-        play: false,
-      });
-    }
-    [mpdList, mpdIds] = await getListInMpd();
-    MpdPlayer.__list = list;
-    MpdPlayer.__mpdIds = mpdIds;
+  constructor() {
+    const state = {};
+    state.currentSongId = 0;
+    state.elapsedTime = 0;
+    state.lastSongId = 0;
+    state.nextSongId = 0;
+    state.nextSongPos = -1;
+    state.queueLength = 0;
+    state.songPos = -1;
+    state.state = 'stop';
+    state.totalTime = 0;
+    state.volume = 0;
+    this.currentSong = {};
+    this.listeners = {};
+    this.updateState(state);
+    this.initialSync = new StatusTracker();
+    this.openWebSocket();
   }
 
-  constructor({ src, html5, preload, format, onend, currentTrack, current }) {
-    this.__id = MpdPlayer.__nextId++;
-    console.log(`new MpdPlayer ${this.__id} to play ${currentTrack.name}`);
+  updateState(state) {
+    const playAnother =
+      this.state === 'play' &&
+      state.state === 'play' &&
+      this.currentSongId !== state.currentSongId;
+    const stopped = this.state !== 'stop' && state.state === 'stop';
 
-    this.src = src;
-    this.html5 = html5;
-    this.preload = preload;
-    this.format = format;
-    this.onend = onend;
-    this.currentTrack = currentTrack;
-    this.current = current;
+    this.currentSongId = state.currentSongId;
+    this.elapsedTime = state.elapsedTime;
+    this.lastSongId = state.lastSongId;
+    this.nextSongId = state.nextSongId;
+    this.nextSongPos = state.nextSongPos;
+    this.queueLength = state.queueLength;
+    this.songPos = state.songPos;
+    this.state = state.state;
+    this.totalTime = state.totalTime;
+    this.volume = state.volume;
 
-    this.tags = {
-      title: currentTrack.name,
-      album: currentTrack.al.name,
-      artist: currentTrack.ar.map(ar => ar.name).join('; '),
+    if (playAnother) {
+      this.listeners['playAnother'] && this.listeners['playAnother']();
+    }
+    if (stopped) {
+      this.listeners['stopped'] && this.listeners['stopped']();
+    }
+  }
+
+  on(event, callback) {
+    this.listeners[event] = callback;
+  }
+
+  async sync() {
+    const playerState = await callMpd('MYMPD_API_PLAYER_STATE', {});
+    this.currentSong = await callMpd('MYMPD_API_PLAYER_CURRENT_SONG', {});
+    this.updateState(playerState);
+  }
+
+  async openWebSocket() {
+    await this.sync();
+    this.initialSync.markAsDone();
+    const socket = new WebSocket(
+      `${mympdUrl.replace('http', 'ws')}/ws/default`
+    );
+    let intervalId;
+
+    socket.addEventListener('open', () => {
+      console.log(`websocket open ${new Date().toISOString()}`);
+      intervalId = setInterval(() => {
+        socket.send('ping');
+      }, 5000);
+    });
+
+    socket.addEventListener('message', event => {
+      if (!event.data) {
+        return;
+      }
+      if (!event.data.startsWith('{')) {
+        return;
+      }
+      const data = JSON.parse(event.data);
+      if (data.method !== 'update_state') {
+        return;
+      }
+
+      this.updateState(data.params);
+    });
+
+    socket.addEventListener('close', () => {
+      console.log(`websocket close ${new Date().toISOString()}`);
+      clearInterval(intervalId);
+      setTimeout(() => this.openWebSocket());
+    });
+  }
+
+  get playing() {
+    return this.state === 'play';
+  }
+
+  async play(songId) {
+    await this.sync();
+    if (songId && songId !== this.currentSongId) {
+      await callMpd('MYMPD_API_PLAYER_PLAY_SONG', { songId });
+    } else {
+      await callMpd('MYMPD_API_PLAYER_PLAY', {});
+    }
+    await this.sync();
+  }
+
+  async resume() {
+    await callMpd('MYMPD_API_PLAYER_RESUME', {});
+  }
+
+  async pause() {
+    await callMpd('MYMPD_API_PLAYER_PAUSE', {});
+  }
+
+  async stop() {
+    await callMpd('MYMPD_API_PLAYER_STOP', {});
+  }
+}
+
+export class Mpd {
+  constructor(yesMusicPlayer) {
+    this.yesMusicPlayer = yesMusicPlayer;
+    this.queue = [];
+    this.player = new MpdPlayer();
+    this._isSyncListFromPlayerDone = true;
+
+    this.player.on('playAnother', async () => {
+      await this.syncListFromPlayer();
+      const trackId = this.queue[this.player.songPos].trackId;
+      this.yesMusicPlayer._replaceCurrentTrack(trackId); // will trigger play again, but will not break anything. also have some delay.
+    });
+    this.player.on('stopped', () => {
+      this.yesMusicPlayer.pause();
+    });
+
+    // sync yesMusicPlayer with mpd's playing status when first time load page;
+    this.player.initialSync.promise.then(() => {
+      if (
+        this.player.playing &&
+        this.player.songPos !== this.yesMusicPlayer.current
+      ) {
+        return this.player.listeners['playAnother']();
+      }
+      return Promise.resolve();
+    });
+
+    window.mpd = this;
+  }
+
+  async getSongId(trackId) {
+    await this.syncListFromPlayer();
+
+    return this.queue.filter(i => i.trackId === trackId)[0].id;
+  }
+
+  async syncListFromPlayer() {
+    if (!this._isSyncListFromPlayerDone) {
+      await new Promise(resolve => {
+        const intervalId = setInterval(() => {
+          if (this._isSyncListFromPlayerDone) {
+            clearInterval(intervalId);
+            resolve();
+          }
+        }, 500);
+      });
+    }
+    this._isSyncListFromPlayerDone = false;
+    await this.sync();
+    const mpdList = this.queue.map(i => i.trackId);
+    if (!_.isEqual(this.yesMusicPlayer.list, mpdList)) {
+      await this.clear();
+      const tracks = (await getTrackDetail(this.yesMusicPlayer.list.join(',')))
+        .songs;
+      for (let track of tracks) {
+        const nfsUrl = await this.getNfsUrl(track);
+        await this.append(nfsUrl, track);
+      }
+      await this.sync();
+    }
+
+    this._isSyncListFromPlayerDone = true;
+  }
+
+  async sync() {
+    const queue = await callMpd('MYMPD_API_QUEUE_SEARCH', {
+      offset: 0,
+      limit: 100,
+      sort: 'Priority',
+      sortdesc: false,
+      expression: '',
+      fields: [
+        'Pos',
+        'Title',
+        'Artist',
+        'Album',
+        'Duration',
+        'AlbumArtist',
+        'Genre',
+        'Name',
+      ],
+    });
+    function extractIdFromUrl(url) {
+      const match = /neteasemusic\/(.+?)\//.exec(url);
+      return match && +match[1];
+    }
+    this.queue = queue.data.map(i => ({
+      ...i,
+      trackId: extractIdFromUrl(i.uri),
+    }));
+  }
+
+  async getNfsUrl(track) {
+    const source = await this.yesMusicPlayer._getAudioSource(track);
+    const response = await fetch(
+      `${neteaseMusicDownloadUrl}/music/${track.id}`,
+      {
+        method: 'post',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: source,
+          artist: track.ar.map(ar => ar.name).join('&'),
+          name: track.name,
+        }),
+      }
+    );
+    const response_json = await response.json();
+    return response_json.nfs;
+  }
+
+  async append(uri, track) {
+    const tags = {
+      title: track.name,
+      album: track.al.name,
+      artist: track.ar.map(ar => ar.name).join('; '),
     };
+    await callMpd('MYMPD_API_QUEUE_APPEND_URI_TAGS', {
+      uri: uri,
+      tags: tags,
+      play: false,
+    });
+  }
 
+  async clear() {
+    await callMpd('MYMPD_API_QUEUE_CLEAR', {});
+  }
+}
+
+export class FakeHowler {
+  constructor({ current, currentTrack, mpd }) {
+    this.current = current;
+    this.currentTrack = currentTrack;
+    this.mpd = mpd;
+    this._playing = false;
     this._sounds = [];
-    this.__playing = false;
 
     this.__onceCallbacks = {};
-    this.__currentSongResult = null;
-    this.__init_promise = new Promise(resolve => {
-      const intervalId = setInterval(() => {
-        if (MpdPlayer.__list.length > 0) {
-          clearInterval(intervalId);
-          resolve();
-        }
-      }, 500);
-    });
   }
 
   seek() {
     // TODO: support this._howler?.seek(time);
-    if (mpdState.state === 'play' && this.__currentSongResult) {
+    if (this.mpd.player.state === 'play') {
       let process =
-        Math.floor(Date.now() / 1000) - this.__currentSongResult.startTime;
-      console.log(
-        `[${this.__id}] checking MpdPlayer.seek ${process} / ${~~(
-          this.currentTrack.dt / 1000
-        )}`
-      );
+        Math.floor(Date.now() / 1000) - this.mpd.player.currentSong.startTime;
       return process;
     }
-    if (mpdState.state === 'pause') {
-      return mpdState.data.elapsedTime;
+    if (this.mpd.player.state === 'pause') {
+      return this.mpd.player.elapsedTime;
     }
     return 0;
   }
 
   playing() {
-    console.log(`[${this.__id}] checking MpdPlayer.playing ${this.__playing}`);
-    return this.__playing;
+    return this._playing;
   }
   async play() {
-    console.log(`[${this.__id}] calling MpdPlayer.play`);
-    if (mpdState.state === 'pause') {
-      await callMpd('MYMPD_API_PLAYER_RESUME', {});
+    if (
+      this.mpd.player.state === 'pause' &&
+      this.mpd.player.songPos === this.current
+    ) {
+      await this.mpd.player.resume();
+      this._playing = true;
     } else {
-      this.__currentSongResult = null;
-      await this.__init_promise;
-      const songId = MpdPlayer.__mpdIds[this.current];
-      this.__currentSongResult = await callMpd(
-        'MYMPD_API_PLAYER_CURRENT_SONG',
-        {}
-      );
-
-      if (this.__currentSongResult.currentSongId == songId) {
-        await callMpd('MYMPD_API_PLAYER_PLAY', {});
-      } else {
-        await callMpd('MYMPD_API_PLAYER_PLAY_SONG', { songId });
-      }
-      mpdState.onend = this.onend;
+      const songId = await this.mpd.getSongId(this.currentTrack.id);
+      await this.mpd.player.play(songId);
+      this._playing = true;
     }
 
-    this.__currentSongResult = await callMpd(
-      'MYMPD_API_PLAYER_CURRENT_SONG',
-      {}
-    );
-    this.__playing = true;
     this.__onceCallbacks['play'] && this.__onceCallbacks['play']();
     this.__onceCallbacks['play'] = null;
   }
@@ -270,20 +348,16 @@ class MpdPlayer {
     }, 100);
   }
   async pause() {
-    console.log(`[${this.__id}] calling MpdPlayer.pause`);
-    await callMpd('MYMPD_API_PLAYER_PAUSE', {});
-    this.__playing = false;
+    await this.mpd.player.pause();
+    this._playing = false;
   }
 
   async stop() {
-    console.log(`[${this.__id}] calling MpdPlayer.stop`);
-    await callMpd('MYMPD_API_PLAYER_STOP', {});
-    this.__playing = false;
+    await this.mpd.player.stop();
+    this._playing = false;
   }
 
   on(event, callback) {
     console.log(event, callback);
   }
 }
-
-export default MpdPlayer;
