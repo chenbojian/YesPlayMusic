@@ -725,7 +725,8 @@ export default class {
   }
 
   appendTrack(trackID) {
-    this.list.append(trackID);
+    this.list.push(trackID);
+    store.state.mpd.appendByTrackIds([trackID]);
   }
   playNextTrack() {
     // TODO: 切换歌曲时增加加载中的状态

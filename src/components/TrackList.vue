@@ -230,7 +230,8 @@ export default {
       this.player.addTrackToPlayNext(this.rightClickedTrack.id, true);
     },
     addToQueue() {
-      this.player.addTrackToPlayNext(this.rightClickedTrack.id);
+      // this.player.addTrackToPlayNext(this.rightClickedTrack.id);
+      this.player.appendTrack(this.rightClickedTrack.id);
     },
     like() {
       this.likeATrack(this.rightClickedTrack.id);

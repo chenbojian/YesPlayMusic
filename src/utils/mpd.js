@@ -217,13 +217,7 @@ export class Mpd {
     const mpdList = this.queue.map(i => i.trackId);
     if (!_.isEqual(this.yesMusicPlayer.list, mpdList)) {
       await this.clear();
-      const tracks = (await getTrackDetail(this.yesMusicPlayer.list.join(',')))
-        .songs;
-      for (let track of tracks) {
-        const nfsUrl = await this.getNfsUrl(track);
-        await this.append(nfsUrl, track);
-      }
-      await this.sync();
+      await this.appendByTrackIds(this.yesMusicPlayer.list);
     }
 
     this._isSyncListFromPlayerDone = true;
@@ -275,6 +269,15 @@ export class Mpd {
     );
     const response_json = await response.json();
     return response_json.nfs;
+  }
+
+  async appendByTrackIds(trackIds) {
+    const tracks = (await getTrackDetail(trackIds.join(','))).songs;
+    for (let track of tracks) {
+      const nfsUrl = await this.getNfsUrl(track);
+      await this.append(nfsUrl, track);
+    }
+    await this.sync();
   }
 
   async append(uri, track) {
