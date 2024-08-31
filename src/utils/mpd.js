@@ -1,5 +1,6 @@
 import { getTrackDetail } from '@/api/track';
 import * as _ from 'lodash';
+import store from '@/store';
 
 const mympdUrl = process.env.VUE_APP_MYMPD_URL || 'http://localhost:8080';
 const neteaseMusicDownloadUrl =
@@ -173,7 +174,7 @@ export class Mpd {
     this.player.on('playAnother', async () => {
       await this.syncListFromPlayer();
       const trackId = this.queue[this.player.songPos].trackId;
-      this.yesMusicPlayer._replaceCurrentTrack(trackId); // will trigger play again, but will not break anything. also have some delay.
+      await this.yesMusicPlayer._replaceCurrentTrack(trackId); // will trigger play again, but will not break anything. also have some delay.
     });
     this.player.on('stopped', () => {
       this.yesMusicPlayer.pause();
@@ -181,11 +182,12 @@ export class Mpd {
 
     // sync yesMusicPlayer with mpd's playing status when first time load page;
     this.player.initialSync.promise.then(() => {
-      if (
-        this.player.playing &&
-        this.player.songPos !== this.yesMusicPlayer.current
-      ) {
-        return this.player.listeners['playAnother']();
+      if (this.player.playing) {
+        if (this.player.songPos !== this.yesMusicPlayer.current) {
+          return this.player.listeners['playAnother']();
+        } else {
+          this.yesMusicPlayer._setPlaying(true);
+        }
       }
       return Promise.resolve();
     });
@@ -281,6 +283,7 @@ export class Mpd {
       album: track.al.name,
       artist: track.ar.map(ar => ar.name).join('; '),
     };
+    store.dispatch('showToast', `正在添加 ${tags.title} 到 MPD Playlist`);
     await callMpd('MYMPD_API_QUEUE_APPEND_URI_TAGS', {
       uri: uri,
       tags: tags,
