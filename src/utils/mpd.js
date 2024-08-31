@@ -214,10 +214,23 @@ export class Mpd {
     }
     this._isSyncListFromPlayerDone = false;
     await this.sync();
-    const mpdList = this.queue.map(i => i.trackId);
-    if (!_.isEqual(this.yesMusicPlayer.list, mpdList)) {
+    if (
+      !_.isEqual(
+        this.yesMusicPlayer.list,
+        this.queue.map(i => i.trackId)
+      )
+    ) {
       await this.clear();
       await this.appendByTrackIds(this.yesMusicPlayer.list);
+      // remove unplayable items
+      if (
+        !_.isEqual(
+          this.yesMusicPlayer.list,
+          this.queue.map(i => i.trackId)
+        )
+      ) {
+        this.yesMusicPlayer.list = this.queue.map(i => i.trackId);
+      }
     }
 
     this._isSyncListFromPlayerDone = true;
@@ -274,6 +287,10 @@ export class Mpd {
   async appendByTrackIds(trackIds) {
     const tracks = (await getTrackDetail(trackIds.join(','))).songs;
     for (let track of tracks) {
+      if (!track.playable) {
+        console.log(`${track.name} not playable, ignored.`);
+        continue;
+      }
       const nfsUrl = await this.getNfsUrl(track);
       await this.append(nfsUrl, track);
     }
