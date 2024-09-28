@@ -8,8 +8,7 @@ import store from '@/store';
 import { isAccountLoggedIn } from '@/utils/auth';
 import { cacheTrackSource, getTrackSource } from '@/utils/db';
 import { isCreateMpris, isCreateTray } from '@/utils/platform';
-import { Howler } from 'howler';
-import { FakeHowler } from '@/utils/mpd';
+import { Howl, Howler } from 'howler';
 import shuffle from 'lodash/shuffle';
 import { decode as base642Buffer } from '@/utils/base64';
 
@@ -156,7 +155,6 @@ export default class {
   }
   set list(list) {
     this._list = list;
-    store.state.mpd.syncListFromPlayer();
   }
   get current() {
     return this.shuffle ? this._shuffledCurrent : this._current;
@@ -331,7 +329,7 @@ export default class {
   }
   _playAudioSource(source, autoplay = true) {
     Howler.unload();
-    this._howler = new FakeHowler({
+    this._howler = new Howl({
       src: [source],
       html5: true,
       preload: true,
@@ -339,9 +337,6 @@ export default class {
       onend: () => {
         this._nextTrackCallback();
       },
-      current: this.current,
-      currentTrack: this._currentTrack,
-      mpd: store.state.mpd,
     });
     this._howler.on('loaderror', (_, errCode) => {
       // https://developer.mozilla.org/en-US/docs/Web/API/MediaError/code
@@ -558,7 +553,7 @@ export default class {
       ? this._personalFMNextTrack?.id ?? 0
       : this._getNextTrack()[0];
     if (!nextTrackID) return;
-    if (this._personalFMTrack?.id == nextTrackID) return;
+    if (this._personalFMTrack.id == nextTrackID) return;
     getTrackDetail(nextTrackID).then(data => {
       let track = data.songs[0];
       this._getAudioSource(track);
@@ -725,13 +720,11 @@ export default class {
   }
 
   appendTrack(trackID) {
-    this.list.push(trackID);
-    store.state.mpd.appendByTrackIds([trackID]);
+    this.list.append(trackID);
   }
   playNextTrack() {
     // TODO: 切换歌曲时增加加载中的状态
     const [trackID, index] = this._getNextTrack();
-    console.log(`_getNextTrack -> trackID: ${trackID}, index: ${index}`);
     if (trackID === undefined) {
       this._howler?.stop();
       this._setPlaying(false);
