@@ -1,5 +1,4 @@
 import { getTrackDetail } from '@/api/track';
-import * as _ from 'lodash';
 import store from '@/store';
 
 const mympdUrl = process.env.VUE_APP_MYMPD_URL || 'http://localhost:8080';
