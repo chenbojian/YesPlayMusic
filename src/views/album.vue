@@ -51,6 +51,13 @@
             {{ $t('common.play') }}
           </ButtonTwoTone>
           <ButtonTwoTone
+            icon-class="plus"
+            color="grey"
+            @click.native="addAlbumToMpd(album.id)"
+          >
+            MPD
+          </ButtonTwoTone>
+          <ButtonTwoTone
             :icon-class="dynamicDetail.isSub ? 'heart-solid' : 'heart'"
             :icon-button="true"
             :horizontal-padding="0"
@@ -154,6 +161,7 @@ import { splitSoundtrackAlbumTitle, splitAlbumTitle } from '@/utils/common';
 import NProgress from 'nprogress';
 import { isAccountLoggedIn } from '@/utils/auth';
 import { groupBy, toPairs, sortBy } from 'lodash';
+import { Mpd } from '@/utils/mpd';
 
 import ExplicitSymbol from '@/components/ExplicitSymbol.vue';
 import ButtonTwoTone from '@/components/ButtonTwoTone.vue';
@@ -238,6 +246,12 @@ export default {
     ...mapActions(['playFirstTrackOnList', 'playTrackOnListByID', 'showToast']),
     playAlbumByID(id, trackID = 'first') {
       this.$store.state.player.playAlbumByID(id, trackID);
+    },
+    addAlbumToMpd(id) {
+      getAlbum(id).then(data => {
+        let trackIDs = data.songs.map(t => t.id);
+        new Mpd().appendByTrackIds(trackIDs);
+      });
     },
     likeAlbum(toast = false) {
       if (!isAccountLoggedIn()) {

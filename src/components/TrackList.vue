@@ -79,6 +79,7 @@ import { mapActions, mapMutations, mapState } from 'vuex';
 import { addOrRemoveTrackFromPlaylist } from '@/api/playlist';
 import { cloudDiskTrackDelete } from '@/api/user';
 import { isAccountLoggedIn } from '@/utils/auth';
+import { Mpd } from '@/utils/mpd';
 
 import TrackListItem from '@/components/TrackListItem.vue';
 import ContextMenu from '@/components/ContextMenu.vue';
@@ -231,6 +232,9 @@ export default {
     },
     addToQueue() {
       this.player.addTrackToPlayNext(this.rightClickedTrack.id);
+    },
+    addToMpd(trackId) {
+      new Mpd(this.player).appendByTrackIds([trackId]);
     },
     like() {
       this.likeATrack(this.rightClickedTrack.id);

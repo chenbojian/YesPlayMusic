@@ -53,6 +53,13 @@
             {{ $t('common.play') }}
           </ButtonTwoTone>
           <ButtonTwoTone
+            icon-class="plus"
+            color="grey"
+            @click.native="addPlaylistToMpd()"
+          >
+            MPD
+          </ButtonTwoTone>
+          <ButtonTwoTone
             v-if="playlist.creator.userId !== data.user.userId"
             :icon-class="playlist.subscribed ? 'heart-solid' : 'heart'"
             :icon-button="true"
@@ -112,6 +119,13 @@
           @click.native="playPlaylistByID()"
         >
           {{ $t('common.play') }}
+        </ButtonTwoTone>
+        <ButtonTwoTone
+          icon-class="plus"
+          color="grey"
+          @click.native="addPlaylistToMpd()"
+        >
+          MPD
         </ButtonTwoTone>
         <ButtonTwoTone
           v-if="playlist.creator.userId !== data.user.userId"
@@ -229,6 +243,7 @@ import {
 import { getTrackDetail } from '@/api/track';
 import { isAccountLoggedIn } from '@/utils/auth';
 import nativeAlert from '@/utils/nativeAlert';
+import { Mpd } from '@/utils/mpd';
 import locale from '@/locale';
 
 import ButtonTwoTone from '@/components/ButtonTwoTone.vue';
@@ -424,6 +439,10 @@ export default {
         'playlist',
         trackID
       );
+    },
+    addPlaylistToMpd() {
+      let trackIDs = this.playlist.trackIds.map(t => t.id);
+      new Mpd().appendByTrackIds(trackIDs);
     },
     likePlaylist(toast = false) {
       if (!isAccountLoggedIn()) {

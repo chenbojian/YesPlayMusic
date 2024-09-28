@@ -78,6 +78,11 @@
         <svg-icon v-show="isLiked" icon-class="heart-solid"></svg-icon>
       </button>
     </div>
+    <div>
+      <button @click="addToMpd">
+        <svg-icon icon-class="plus"></svg-icon>
+      </button>
+    </div>
     <div v-if="showTrackTime" class="time">
       {{ track.dt | formatTime }}
     </div>
@@ -220,6 +225,9 @@ export default {
     },
     likeThisSong() {
       this.$parent.likeATrack(this.track.id);
+    },
+    addToMpd() {
+      this.$parent.addToMpd(this.track.id);
     },
   },
 };
